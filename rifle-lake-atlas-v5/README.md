@@ -1,19 +1,13 @@
-# Rifle Lake Atlas v5 — Phase 1 remote build
+# Rifle Lake Atlas v6
 
-This build retains the user's full contour chart and adds a hybrid comparison workflow against satellite imagery and Michigan's official inland-lake contour service.
+Focused fishing-companion update:
 
-## Added in v5
-- Hybrid, user-map, state-contour and satellite layer presets
-- State-contour browser cache after the first successful online load
-- Source-disagreement comparison mode
-- Tap-to-read coordinates and nearest loaded state contour
-- Weather-ranked "Today's best areas"
-- Wind status on the map
-- Locked/unlocked calibration handles and saved geographic bounds
-- Correct GPS accuracy conversion and follow mode
+- Your supplied contour chart is now the primary map.
+- Michigan vector contours are hidden in a developer-only comparison section.
+- Permanent numbered spots were removed.
+- Three live recommendations now appear as START, NEXT and BACKUP.
+- A Today's Game Plan card shows target area, depth and lure sequence.
+- No catch log.
 
-## Deployment
-GPS and service-worker behavior require HTTPS. Upload the contents of this folder to GitHub Pages, Netlify, Cloudflare Pages, or another HTTPS static host.
-
-## Accuracy
-The map overlay is remotely calibrated from published geographic extent and must still be validated against recognizable shoreline control points and then checked on the water. This is a fishing aid, not a navigation chart.
+## GitHub Pages update
+Upload the contents of this folder into the same GitHub folder that currently contains v5, replacing files with the same names. Commit the changes. The installed Home Screen app will update after it is reopened; iOS may briefly show the cached version, so close/reopen it or refresh the Safari page once.

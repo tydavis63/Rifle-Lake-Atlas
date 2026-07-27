@@ -6,47 +6,45 @@
   <meta name="theme-color" content="#0b1b24">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Rifle Lake Atlas v5</title>
+  <title>Rifle Lake Atlas v6</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
-    <div>
-      <div class="kicker">RIFLE LAKE</div>
-      <h1>Fishing Atlas <small>v5</small></h1>
-    </div>
+    <div><div class="kicker">RIFLE LAKE</div><h1>Fishing Atlas <small>v6</small></h1></div>
     <button id="gpsBtn" class="primary">Use GPS</button>
   </header>
 
   <main>
+    <section class="game-plan">
+      <div class="plan-head"><div><span class="eyebrow">TODAY'S GAME PLAN</span><h2 id="planHeadline">Loading conditions…</h2></div><button id="refreshPlan" class="compact">Refresh</button></div>
+      <div class="plan-grid">
+        <div><span>Start</span><strong id="startArea">—</strong></div>
+        <div><span>Depth</span><strong id="targetDepth">—</strong></div>
+        <div><span>First bait</span><strong id="firstBait">—</strong></div>
+        <div><span>Follow-up</span><strong id="followBait">—</strong></div>
+      </div>
+      <p id="planReason" class="plan-reason">Weather and time-of-day recommendations will appear here.</p>
+    </section>
+
     <section class="map-wrap">
       <div id="map"></div>
       <div id="gpsState" class="pill">GPS off</div>
-      <div class="map-actions">
-        <button id="centerBtn" title="Center on lake">Lake</button>
-        <button id="followBtn" title="Follow GPS">Follow</button>
-      </div>
-      <div id="mapReadout" class="map-readout">Tap the map for coordinates and nearest state contour.</div>
+      <div class="map-actions"><button id="centerBtn">Lake</button><button id="followBtn">Follow</button></div>
+      <div id="mapReadout" class="map-readout">Tap the map for coordinates.</div>
     </section>
 
     <section class="panel-grid">
       <article class="panel">
-        <div class="panel-head"><h2>Layers</h2><span id="contourStatus" class="status">loading</span></div>
+        <div class="panel-head"><h2>Map</h2><span class="status">your chart</span></div>
         <label class="row"><span>Your contour map</span><input id="userMapToggle" type="checkbox" checked></label>
-        <label class="row"><span>Michigan vector contours</span><input id="stateToggle" type="checkbox" checked></label>
-        <label class="row"><span>Fishing zones</span><input id="zonesToggle" type="checkbox" checked></label>
-        <label for="opacity">Your-map opacity <strong id="opacityValue">68%</strong></label>
-        <input id="opacity" type="range" min="0" max="100" value="68">
-        <div class="button-row preset-row" aria-label="Layer presets">
-          <button type="button" data-preset="hybrid" class="active">Hybrid</button>
-          <button type="button" data-preset="user">Your map</button>
-          <button type="button" data-preset="state">State</button>
-          <button type="button" data-preset="satellite">Satellite</button>
-        </div>
-        <label class="row"><span>Source-disagreement view</span><input id="disagreementToggle" type="checkbox"></label>
-        <p class="note">The uploaded map is retained as the primary visual reference. The state contour service supplies geographic alignment and a cross-check.</p>
+        <label class="row"><span>Satellite background</span><input id="satelliteToggle" type="checkbox"></label>
+        <label class="row"><span>Recommended areas</span><input id="recommendationToggle" type="checkbox" checked></label>
+        <label for="opacity">Contour opacity <strong id="opacityValue">82%</strong></label>
+        <input id="opacity" type="range" min="20" max="100" value="82">
+        <p class="note">Your supplied contour chart is the primary fishing map. Michigan contours are no longer shown in normal use.</p>
       </article>
 
       <article class="panel">
@@ -69,38 +67,36 @@
       </article>
 
       <article class="panel">
-        <div class="panel-head"><h2>Today's best areas</h2><button id="rankBtn" class="link-btn">Re-rank</button></div>
-        <ol id="rankedZones" class="ranked-zones"><li>Waiting for weather…</li></ol>
-        <p class="note">Ranked from wind, cloud cover, time of day and seasonal depth—not measured fish activity.</p>
-      </article>
-
-      <article class="panel">
-        <div class="panel-head"><h2 id="zoneName">Fishing areas</h2><span id="zoneRank" class="status">tap map</span></div>
-        <div id="zoneInfo" class="zone-info">Tap a numbered area for target depth, timing and bait choices.</div>
+        <div class="panel-head"><h2>Best areas now</h2><span class="status">live ranking</span></div>
+        <div id="rankedAreas" class="ranked-areas"><p>Waiting for weather…</p></div>
       </article>
 
       <details class="panel calibration">
         <summary>Map alignment controls</summary>
-        <p class="note">The supplied chart is north-up, so alignment is handled with four shoreline corner controls rather than a rotation guess. Turn on calibration handles and match the north end, south end, west point and east point against the satellite shoreline. Save the result before field validation.</p>
+        <p class="note">Use only if the chart shoreline is visibly offset from the satellite shoreline. Changes save on this device.</p>
         <label class="row"><span>Show corner handles</span><input id="calibrationToggle" type="checkbox"></label>
         <label class="row"><span>Lock calibration</span><input id="calibrationLock" type="checkbox" checked></label>
-        <div class="detail-row"><span>Alignment quality</span><strong id="alignmentQuality">first-pass</strong></div>
         <div class="bounds-grid">
           <label>North<input id="north" type="number" step="0.00001"></label>
           <label>South<input id="south" type="number" step="0.00001"></label>
           <label>West<input id="west" type="number" step="0.00001"></label>
           <label>East<input id="east" type="number" step="0.00001"></label>
         </div>
-        <div class="button-row"><button id="applyBounds">Apply & save</button><button id="fitOverlay">Fit overlay</button><button id="resetBounds">Reset</button></div>
-        <div class="nudge-grid" aria-label="Fine alignment controls">
+        <div class="button-row"><button id="applyBounds">Apply & save</button><button id="fitOverlay">Fit map</button><button id="resetBounds">Reset</button></div>
+        <div class="nudge-grid">
           <button data-nudge="north">↑ North</button><button data-nudge="shrinkY">↕ Shrink</button><button data-nudge="east">East →</button>
           <button data-nudge="west">← West</button><button data-nudge="growY">↕ Grow</button><button data-nudge="south">↓ South</button>
           <button data-nudge="shrinkX">↔ Shrink</button><button data-nudge="growX">↔ Grow</button>
         </div>
       </details>
+
+      <details class="panel developer">
+        <summary>Developer comparison</summary>
+        <label class="row"><span>Michigan reference contours</span><input id="stateToggle" type="checkbox"></label>
+        <p id="contourStatus" class="note">Hidden by default. These are retained only as a calibration reference because their extent does not match the supplied chart.</p>
+      </details>
     </section>
   </main>
-
   <footer>Fishing aid only — not a navigation chart.</footer>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>
