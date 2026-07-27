@@ -6,14 +6,14 @@
   <meta name="theme-color" content="#0b1b24">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Rifle Lake Atlas v7</title>
+  <title>Rifle Lake Atlas v9</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
-    <div><div class="kicker">RIFLE LAKE</div><h1>Fishing Atlas <small>v7</small></h1></div>
+    <div><div class="kicker">RIFLE LAKE</div><h1>Fishing Atlas <small>v9</small></h1></div>
     <button id="gpsBtn" class="primary">Use GPS</button>
   </header>
 
@@ -31,20 +31,22 @@
 
     <section class="map-wrap">
       <div id="map"></div>
-      <div id="gpsState" class="pill">GPS off</div>
+      <div id="gpsState" class="pill">GPS off</div><div id="gpsQuality" class="gps-quality">Waiting for GPS</div>
       <div class="map-actions"><button id="centerBtn">Lake</button><button id="followBtn">Follow</button></div>
       <div id="mapReadout" class="map-readout">Tap the map for coordinates.</div>
     </section>
 
     <section class="panel-grid">
       <article class="panel">
-        <div class="panel-head"><h2>Map</h2><span class="status">your chart</span></div>
-        <label class="row"><span>Your contour map</span><input id="userMapToggle" type="checkbox" checked></label>
+        <div class="panel-head"><h2>Map</h2><span class="status">GPS-aligned</span></div>
+        <label class="row"><span>Official depth contours</span><input id="stateToggle" type="checkbox" checked></label>
         <label class="row"><span>Satellite background</span><input id="satelliteToggle" type="checkbox"></label>
         <label class="row"><span>Recommended areas</span><input id="recommendationToggle" type="checkbox" checked></label>
-        <label for="opacity">Contour opacity <strong id="opacityValue">82%</strong></label>
-        <input id="opacity" type="range" min="20" max="100" value="82">
-        <p class="note">Your supplied contour chart is the primary fishing map. Michigan contours are no longer shown in normal use.</p>
+        <label class="row"><span>Legacy scanned chart</span><input id="userMapToggle" type="checkbox"></label>
+        <label for="opacity">Legacy chart opacity <strong id="opacityValue">45%</strong></label>
+        <input id="opacity" type="range" min="10" max="80" value="45">
+        <p id="contourStatus" class="note">Loading geographically referenced Michigan depth contours…</p>
+        <p class="note"><strong>Navigation mode:</strong> the GPS dot is positioned against OpenStreetMap/satellite and official coordinate-based contours. The old scanned chart is off by default because it cannot be trusted for position.</p>
       </article>
 
       <article class="panel">
@@ -90,11 +92,12 @@
         </div>
       </details>
 
-      <details class="panel developer">
-        <summary>Developer comparison</summary>
-        <label class="row"><span>Michigan reference contours</span><input id="stateToggle" type="checkbox"></label>
-        <p id="contourStatus" class="note">Hidden by default. These are retained only as a calibration reference because their extent does not match the supplied chart.</p>
-      </details>
+      <article class="panel">
+        <div class="panel-head"><h2>GPS confidence</h2><span id="gpsBadge" class="status">off</span></div>
+        <div class="detail-row"><span>Reported accuracy</span><strong id="gpsAccuracy">—</strong></div>
+        <div class="detail-row"><span>Readings accepted</span><strong id="gpsAccepted">0</strong></div>
+        <p class="note">For the best result, keep Location Services enabled, allow Precise Location for Safari, place the phone where it has a clear view of the sky, and wait for the badge to show Good before relying on the dot.</p>
+      </article>
     </section>
   </main>
   <footer>Fishing aid only — not a navigation chart.</footer>
