@@ -1,6 +1,7 @@
 const LAKE_CENTER=[44.41155,-83.97986];
 const DEFAULT_BOUNDS={north:44.41620,south:44.40515,west:-83.98490,east:-83.97470};
-const CONTOUR_URL='https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/4/query?where=1%3D1&geometry=-83.990%2C44.400%2C-83.970%2C44.422&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=DEPTH%2COBJECTID&returnGeometry=true&outSR=4326&f=geojson';
+const CONTOUR_SERVICE='https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/export';
+const CONTOUR_BOUNDS={north:44.4230,south:44.3990,west:-83.9920,east:-83.9680};
 const CALIBRATION_KEY='rifleBoundsV9Legacy';
 let bounds=JSON.parse(localStorage.getItem(CALIBRATION_KEY)||'null')||{...DEFAULT_BOUNDS};
 let weatherState=null,gpsWatch=null,gpsMarker=null,gpsCircle=null,followGps=false,acceptedReadings=0,lastAccepted=null;
@@ -9,7 +10,15 @@ const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView(LAKE_CENTER,
 const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'© OpenStreetMap'}).addTo(map);
 const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,attribution:'Esri imagery'});
 let imageOverlay=L.imageOverlay('assets/rifle-lake-user-map.jpg',[[bounds.south,bounds.west],[bounds.north,bounds.east]],{opacity:.45,interactive:false});
-const stateContours=L.geoJSON(null,{pane:'overlayPane',style:f=>{const d=Number(f.properties?.DEPTH||0);return {color:d%10===0?'#082b45':'#12618a',weight:d%10===0?2.8:1.6,opacity:.95};},onEachFeature:(f,l)=>{if(f.properties?.DEPTH!=null)l.bindTooltip(`${f.properties.DEPTH} ft`,{className:'depth-label',sticky:true});}}).addTo(map);
+function mercatorX(lng){return lng*20037508.342789244/180;}
+function mercatorY(lat){const y=Math.log(Math.tan((90+lat)*Math.PI/360))/(Math.PI/180);return y*20037508.342789244/180;}
+function contourImageUrl(){
+  const b=CONTOUR_BOUNDS;
+  const bbox=[mercatorX(b.west),mercatorY(b.south),mercatorX(b.east),mercatorY(b.north)].join(',');
+  const params=new URLSearchParams({bbox,bboxSR:'3857',imageSR:'3857',size:'1600,1600',dpi:'192',format:'png32',transparent:'true',layers:'show:4',f:'image'});
+  return `${CONTOUR_SERVICE}?${params.toString()}`;
+}
+const stateContours=L.imageOverlay(contourImageUrl(),[[CONTOUR_BOUNDS.south,CONTOUR_BOUNDS.west],[CONTOUR_BOUNDS.north,CONTOUR_BOUNDS.east]],{opacity:1,interactive:false,crossOrigin:true}).addTo(map);
 const recommendations=L.layerGroup().addTo(map);
 
 const areas=[
@@ -38,7 +47,12 @@ satelliteToggle.addEventListener('change',e=>{if(e.target.checked){map.removeLay
 recommendationToggle.addEventListener('change',e=>e.target.checked?recommendations.addTo(map):map.removeLayer(recommendations));
 stateToggle.addEventListener('change',e=>e.target.checked?stateContours.addTo(map):map.removeLayer(stateContours));
 map.on('click',e=>mapReadout.textContent=`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`);
-async function loadContours(){contourStatus.textContent='Loading geographically referenced Michigan depth contours…';try{const r=await fetch(CONTOUR_URL,{cache:'no-cache'});if(!r.ok)throw new Error();const g=await r.json();stateContours.clearLayers().addData(g);const count=stateContours.getLayers().length;contourStatus.textContent=count?`Loaded ${count} official coordinate-based contour lines. GPS and contours now use the same geographic coordinate system.`:'No official contours were returned. Use satellite/OSM shoreline for position.';}catch{contourStatus.textContent='Official contours could not load. GPS remains aligned to the street/satellite shoreline; the scanned chart stays off.';}}
+function loadContours(){
+  contourStatus.textContent='Loading official Michigan depth contours…';
+  stateContours.once('load',()=>{contourStatus.textContent='Official Michigan depth contours loaded and geographically aligned with GPS.';});
+  stateContours.once('error',()=>{contourStatus.textContent='Official contour service did not load. Check internet connection, then reload the app.';});
+  stateContours.setUrl(contourImageUrl());
+}
 centerBtn.addEventListener('click',()=>map.setView(LAKE_CENTER,15));followBtn.addEventListener('click',()=>{followGps=!followGps;followBtn.textContent=followGps?'Following':'Follow';});
 function qualityFor(acc){if(acc<=8)return ['Excellent','excellent'];if(acc<=15)return ['Good','good'];if(acc<=30)return ['Fair','fair'];return ['Poor','poor'];}
 function updateGpsUi(acc){const feet=Math.round(acc*3.28084),[label,cls]=qualityFor(acc);gpsState.textContent=`GPS ±${feet} ft`;gpsAccuracy.textContent=`±${feet} ft`;gpsBadge.textContent=label;gpsBadge.className=`status gps-${cls}`;gpsQuality.textContent=acc<=15?'Position ready':acc<=30?'Wait for a tighter fix':'Do not rely on dot yet';gpsQuality.className=`gps-quality gps-${cls}`;gpsAccepted.textContent=acceptedReadings;}
