@@ -1,7 +1,8 @@
 const LAKE_CENTER=[44.4085833,-83.9797917];
-const DEFAULT_BOUNDS={north:44.4200,south:44.4000,west:-83.9900,east:-83.9700};
+const DEFAULT_BOUNDS={north:44.4190,south:44.4020,west:-83.9875,east:-83.9723};
 const CONTOUR_URL='https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/4/query?where=1%3D1&geometry=-83.995%2C44.395%2C-83.965%2C44.43&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=DEPTH%2COBJECTID&returnGeometry=true&outSR=4326&f=geojson';
-let bounds=JSON.parse(localStorage.getItem('rifleBounds')||'null')||{...DEFAULT_BOUNDS};
+const CALIBRATION_KEY='rifleBoundsV7';
+let bounds=JSON.parse(localStorage.getItem(CALIBRATION_KEY)||'null')||{...DEFAULT_BOUNDS};
 let weatherState=null,gpsWatch=null,gpsMarker=null,gpsCircle=null,followGps=false;
 
 const map=L.map('map',{zoomControl:true}).setView(LAKE_CENTER,14);
@@ -57,7 +58,7 @@ document.getElementById('gpsBtn').addEventListener('click',()=>{if(!navigator.ge
 
 function fillBounds(){['north','south','west','east'].forEach(k=>document.getElementById(k).value=bounds[k]);}
 function updateOverlay(){imageOverlay.setBounds([[bounds.south,bounds.west],[bounds.north,bounds.east]]);fillBounds();Object.entries(cornerMarkers).forEach(([id,m])=>m.setLatLng(cornerDefs.find(c=>c.id===id).get()));}
-fillBounds();document.getElementById('applyBounds').addEventListener('click',()=>{bounds={north:+north.value,south:+south.value,west:+west.value,east:+east.value};localStorage.setItem('rifleBounds',JSON.stringify(bounds));updateOverlay();map.fitBounds(imageOverlay.getBounds());});document.getElementById('resetBounds').addEventListener('click',()=>{bounds={...DEFAULT_BOUNDS};localStorage.removeItem('rifleBounds');updateOverlay();map.fitBounds(imageOverlay.getBounds());});document.getElementById('fitOverlay').addEventListener('click',()=>map.fitBounds(imageOverlay.getBounds(),{padding:[20,20]}));
+fillBounds();document.getElementById('applyBounds').addEventListener('click',()=>{bounds={north:+north.value,south:+south.value,west:+west.value,east:+east.value};localStorage.setItem(CALIBRATION_KEY,JSON.stringify(bounds));updateOverlay();map.fitBounds(imageOverlay.getBounds());});document.getElementById('resetBounds').addEventListener('click',()=>{bounds={...DEFAULT_BOUNDS};localStorage.removeItem(CALIBRATION_KEY);updateOverlay();map.fitBounds(imageOverlay.getBounds());});document.getElementById('fitOverlay').addEventListener('click',()=>map.fitBounds(imageOverlay.getBounds(),{padding:[20,20]}));
 const calibrationLayer=L.layerGroup(),cornerDefs=[{id:'nw',label:'NW',get:()=>[bounds.north,bounds.west]},{id:'ne',label:'NE',get:()=>[bounds.north,bounds.east]},{id:'sw',label:'SW',get:()=>[bounds.south,bounds.west]},{id:'se',label:'SE',get:()=>[bounds.south,bounds.east]}],cornerMarkers={};
 cornerDefs.forEach(c=>{const icon=L.divIcon({className:'',html:'<div class="calibration-handle"></div>',iconSize:[18,18],iconAnchor:[9,9]});const m=L.marker(c.get(),{icon,draggable:true}).addTo(calibrationLayer).bindTooltip(c.label,{permanent:true,direction:'top'});m.on('drag',e=>{const ll=e.target.getLatLng();if(c.id.includes('n'))bounds.north=ll.lat;else bounds.south=ll.lat;if(c.id.includes('w'))bounds.west=ll.lng;else bounds.east=ll.lng;updateOverlay();});cornerMarkers[c.id]=m;});
 function setDrag(){const locked=document.getElementById('calibrationLock').checked;Object.values(cornerMarkers).forEach(m=>locked?m.dragging.disable():m.dragging.enable());}document.getElementById('calibrationToggle').addEventListener('change',e=>e.target.checked?calibrationLayer.addTo(map):map.removeLayer(calibrationLayer));document.getElementById('calibrationLock').addEventListener('change',setDrag);setDrag();
