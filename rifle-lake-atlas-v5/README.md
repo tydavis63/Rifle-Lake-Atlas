@@ -15,3 +15,7 @@ Upload the contents of this folder into the same GitHub folder that currently co
 
 ## v8 map alignment update
 The default contour overlay was reduced and repositioned to better match the OpenStreetMap shoreline. v8 uses a new calibration storage key, so older oversized saved bounds do not carry forward. This is a remote first-pass alignment and still requires onsite GPS validation before being relied upon for precise navigation.
+
+
+## v11 contour alignment fix
+The official ArcGIS contour export now uses an image aspect ratio calculated from the requested Web Mercator extent. This prevents the ArcGIS service from silently expanding or cropping the requested extent and keeps the contour raster aligned with Leaflet, OpenStreetMap, satellite imagery, and the GPS dot.

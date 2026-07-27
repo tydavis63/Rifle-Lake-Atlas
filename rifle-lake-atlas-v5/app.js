@@ -14,8 +14,33 @@ function mercatorX(lng){return lng*20037508.342789244/180;}
 function mercatorY(lat){const y=Math.log(Math.tan((90+lat)*Math.PI/360))/(Math.PI/180);return y*20037508.342789244/180;}
 function contourImageUrl(){
   const b=CONTOUR_BOUNDS;
-  const bbox=[mercatorX(b.west),mercatorY(b.south),mercatorX(b.east),mercatorY(b.north)].join(',');
-  const params=new URLSearchParams({bbox,bboxSR:'3857',imageSR:'3857',size:'1600,1600',dpi:'192',format:'png32',transparent:'true',layers:'show:4',f:'image'});
+  const west=mercatorX(b.west), south=mercatorY(b.south), east=mercatorX(b.east), north=mercatorY(b.north);
+  const bbox=[west,south,east,north].join(',');
+
+  // ArcGIS changes the requested geographic extent when the output image's
+  // aspect ratio does not match the bbox. The old square 1600x1600 request
+  // therefore produced a raster whose true extent differed from the Leaflet
+  // bounds, making the contours look shifted. Match the pixel dimensions to
+  // the Web Mercator bbox so every exported pixel lands at its correct GPS
+  // coordinate.
+  const maxDimension=1800;
+  const projectedWidth=east-west;
+  const projectedHeight=north-south;
+  const width=Math.max(1,Math.round(maxDimension*projectedWidth/projectedHeight));
+  const height=maxDimension;
+
+  const params=new URLSearchParams({
+    bbox,
+    bboxSR:'3857',
+    imageSR:'3857',
+    size:`${width},${height}`,
+    dpi:'192',
+    format:'png32',
+    transparent:'true',
+    layers:'show:4',
+    f:'image',
+    _v:'11'
+  });
   return `${CONTOUR_SERVICE}?${params.toString()}`;
 }
 const stateContours=L.imageOverlay(contourImageUrl(),[[CONTOUR_BOUNDS.south,CONTOUR_BOUNDS.west],[CONTOUR_BOUNDS.north,CONTOUR_BOUNDS.east]],{opacity:1,interactive:false,crossOrigin:true}).addTo(map);
