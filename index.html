@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1b24">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Rifle Lake Atlas v12</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div><div class="kicker">RIFLE LAKE</div><h1>Fishing Atlas <small>v12</small></h1></div>
+    <button id="gpsBtn" class="primary">Use GPS</button>
+  </header>
+
+  <main>
+    <section class="game-plan">
+      <div class="plan-head"><div><span class="eyebrow">TODAY'S GAME PLAN</span><h2 id="planHeadline">Loading conditions…</h2></div><button id="refreshPlan" class="compact">Refresh</button></div>
+      <div class="plan-grid">
+        <div><span>Start</span><strong id="startArea">—</strong></div>
+        <div><span>Depth</span><strong id="targetDepth">—</strong></div>
+        <div><span>First bait</span><strong id="firstBait">—</strong></div>
+        <div><span>Follow-up</span><strong id="followBait">—</strong></div>
+      </div>
+      <p id="planReason" class="plan-reason">Weather and time-of-day recommendations will appear here.</p>
+    </section>
+
+    <section class="map-wrap">
+      <div id="map"></div>
+      <div id="gpsState" class="pill">GPS off</div><div id="gpsQuality" class="gps-quality">Waiting for GPS</div>
+      <div class="map-actions"><button id="centerBtn">Lake</button><button id="followBtn">Follow</button></div>
+      <div id="mapReadout" class="map-readout">Tap the map for coordinates and nearest contour depth.</div>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel">
+        <div class="panel-head"><h2>Map</h2><span class="status">GPS-aligned</span></div>
+        <label class="row"><span>Official Michigan depth contours</span><input id="stateToggle" type="checkbox" checked></label>
+        <label class="row"><span>Depth numbers</span><input id="depthLabelToggle" type="checkbox" checked></label>
+        <label class="row"><span>Satellite background</span><input id="satelliteToggle" type="checkbox"></label>
+        <label class="row"><span>Recommended areas</span><input id="recommendationToggle" type="checkbox" checked></label>
+        <label class="row"><span>Legacy scanned chart</span><input id="userMapToggle" type="checkbox"></label>
+        <label for="opacity">Legacy chart opacity <strong id="opacityValue">45%</strong></label>
+        <input id="opacity" type="range" min="10" max="80" value="45">
+        <p id="contourStatus" class="note">Loading geographically referenced Michigan depth contours…</p>
+        <p class="note"><strong>Navigation mode:</strong> the GPS dot is positioned against OpenStreetMap/satellite and official coordinate-based contours. The old scanned chart is off by default because it cannot be trusted for position.</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head"><h2>Conditions</h2><button id="weatherBtn" class="link-btn">Refresh</button></div>
+        <div class="metrics">
+          <div><span>Air</span><strong id="air">—</strong></div>
+          <div><span>Wind</span><strong id="wind">—</strong></div>
+          <div><span>Clouds</span><strong id="clouds">—</strong></div>
+          <div><span>Rain</span><strong id="rain">—</strong></div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head"><h2>Estimated Water</h2><span id="confidence" class="status">—</span></div>
+        <div class="water"><strong id="surfaceTemp">—</strong><span>surface</span></div>
+        <div class="detail-row"><span>Shallow weeds</span><strong id="weedTemp">—</strong></div>
+        <div class="detail-row"><span>10–16 ft</span><strong id="edgeTemp">—</strong></div>
+        <div class="detail-row"><span>Thermocline</span><strong id="thermo">—</strong></div>
+        <p class="note">Weather-based estimate, not a measured reading.</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head"><h2>Best areas now</h2><span class="status">live ranking</span></div>
+        <div id="rankedAreas" class="ranked-areas"><p>Waiting for weather…</p></div>
+      </article>
+
+      <details class="panel calibration">
+        <summary>Map alignment controls</summary>
+        <p class="note">Use only if the chart shoreline is visibly offset from the satellite shoreline. Changes save on this device.</p>
+        <label class="row"><span>Show corner handles</span><input id="calibrationToggle" type="checkbox"></label>
+        <label class="row"><span>Lock calibration</span><input id="calibrationLock" type="checkbox" checked></label>
+        <div class="bounds-grid">
+          <label>North<input id="north" type="number" step="0.00001"></label>
+          <label>South<input id="south" type="number" step="0.00001"></label>
+          <label>West<input id="west" type="number" step="0.00001"></label>
+          <label>East<input id="east" type="number" step="0.00001"></label>
+        </div>
+        <div class="button-row"><button id="applyBounds">Apply & save</button><button id="fitOverlay">Fit map</button><button id="resetBounds">Reset</button></div>
+        <div class="nudge-grid">
+          <button data-nudge="north">↑ North</button><button data-nudge="shrinkY">↕ Shrink</button><button data-nudge="east">East →</button>
+          <button data-nudge="west">← West</button><button data-nudge="growY">↕ Grow</button><button data-nudge="south">↓ South</button>
+          <button data-nudge="shrinkX">↔ Shrink</button><button data-nudge="growX">↔ Grow</button>
+        </div>
+      </details>
+
+      <article class="panel">
+        <div class="panel-head"><h2>GPS confidence</h2><span id="gpsBadge" class="status">off</span></div>
+        <div class="detail-row"><span>Reported accuracy</span><strong id="gpsAccuracy">—</strong></div>
+        <div class="detail-row"><span>Readings accepted</span><strong id="gpsAccepted">0</strong></div>
+        <p class="note">For the best result, keep Location Services enabled, allow Precise Location for Safari, place the phone where it has a clear view of the sky, and wait for the badge to show Good before relying on the dot.</p>
+      </article>
+    </section>
+  </main>
+  <footer>Fishing aid only — not a navigation chart.</footer>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
