@@ -1,168 +1,259 @@
-const LAKE_CENTER=[44.41155,-83.97986];
-const DEFAULT_BOUNDS={north:44.41620,south:44.40515,west:-83.98490,east:-83.97470};
-const CONTOUR_SERVICE='https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/export';
-const CONTOUR_QUERY='https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/4/query';
-const CONTOUR_BOUNDS={north:44.4230,south:44.3990,west:-83.9920,east:-83.9680};
-const CALIBRATION_KEY='rifleBoundsV9Legacy';
-let bounds=JSON.parse(localStorage.getItem(CALIBRATION_KEY)||'null')||{...DEFAULT_BOUNDS};
-let weatherState=null,gpsWatch=null,gpsMarker=null,gpsCircle=null,followGps=false,acceptedReadings=0,lastAccepted=null;
-let contourFeatures=[],vectorContours=null;
-const depthLabels=L.layerGroup();
+'use strict';
 
-const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView(LAKE_CENTER,15);
-const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'© OpenStreetMap'}).addTo(map);
-const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,attribution:'Esri imagery'});
-let imageOverlay=L.imageOverlay('assets/rifle-lake-user-map.jpg',[[bounds.south,bounds.west],[bounds.north,bounds.east]],{opacity:.45,interactive:false});
-function mercatorX(lng){return lng*20037508.342789244/180;}
-function mercatorY(lat){const y=Math.log(Math.tan((90+lat)*Math.PI/360))/(Math.PI/180);return y*20037508.342789244/180;}
-function contourImageUrl(){
-  const b=CONTOUR_BOUNDS;
-  const west=mercatorX(b.west), south=mercatorY(b.south), east=mercatorX(b.east), north=mercatorY(b.north);
-  const bbox=[west,south,east,north].join(',');
+const VERSION = '2.0.0';
+const LAKE_CENTER = [44.41123, -83.97949];
+const LAKE_BOUNDS = L.latLngBounds([44.3994, -83.9894], [44.4230, -83.9682]);
+const CONTOUR_URL = 'https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/4/query';
+const EXPORT_URL = 'https://gisagocss.state.mi.us/arcgis/rest/services/OpenData/hydro/MapServer/export';
 
-  // ArcGIS changes the requested geographic extent when the output image's
-  // aspect ratio does not match the bbox. The old square 1600x1600 request
-  // therefore produced a raster whose true extent differed from the Leaflet
-  // bounds, making the contours look shifted. Match the pixel dimensions to
-  // the Web Mercator bbox so every exported pixel lands at its correct GPS
-  // coordinate.
-  const maxDimension=1800;
-  const projectedWidth=east-west;
-  const projectedHeight=north-south;
-  const width=Math.max(1,Math.round(maxDimension*projectedWidth/projectedHeight));
-  const height=maxDimension;
+const map = L.map('map', {preferCanvas:true, zoomControl:true, maxBounds:LAKE_BOUNDS.pad(.65)});
+map.fitBounds(LAKE_BOUNDS, {padding:[10,10]});
 
-  const params=new URLSearchParams({
-    bbox,
-    bboxSR:'3857',
-    imageSR:'3857',
-    size:`${width},${height}`,
-    dpi:'192',
-    format:'png32',
-    transparent:'true',
-    layers:'show:4',
-    f:'image',
-    _v:'11'
-  });
-  return `${CONTOUR_SERVICE}?${params.toString()}`;
-}
-const stateContours=L.imageOverlay(contourImageUrl(),[[CONTOUR_BOUNDS.south,CONTOUR_BOUNDS.west],[CONTOUR_BOUNDS.north,CONTOUR_BOUNDS.east]],{opacity:1,interactive:false,crossOrigin:true}).addTo(map);
-const recommendations=L.layerGroup().addTo(map);
-depthLabels.addTo(map);
-
-const areas=[
-{name:'North basin weed edge',lat:44.4178,lng:-83.9811,depth:'8–16 ft',first:'Walking bait or spybait',follow:'Drop shot',tags:['morning','calm','north','shallow']},
-{name:'Northwest inside turn',lat:44.4162,lng:-83.9852,depth:'10–18 ft',first:'Ned rig',follow:'Finesse jig',tags:['cloud','west','finesse']},
-{name:'North basin east point',lat:44.4159,lng:-83.9754,depth:'8–15 ft',first:'Swim jig or chatterbait',follow:'Jerkbait',tags:['wind','east','moving']},
-{name:'Narrows north lip',lat:44.4133,lng:-83.9808,depth:'10–22 ft',first:'Small swimbait',follow:'Drop shot',tags:['all','narrows','deep']},
-{name:'Narrows south lip',lat:44.4114,lng:-83.9802,depth:'8–18 ft',first:'Spybait',follow:'Tube',tags:['morning','narrows','finesse']},
-{name:'West mid-lake point',lat:44.4093,lng:-83.9851,depth:'10–20 ft',first:'Football jig',follow:'Drop shot',tags:['sun','west','deep']},
-{name:'East mid-lake break',lat:44.4082,lng:-83.9748,depth:'12–24 ft',first:'Drop shot',follow:'Finesse swimbait',tags:['sun','east','deep']},
-{name:'Southwest shelf',lat:44.4055,lng:-83.9843,depth:'7–15 ft',first:'Topwater',follow:'Weightless fluke',tags:['morning','west','shallow']},
-{name:'South basin deep edge',lat:44.4029,lng:-83.9797,depth:'15–28 ft',first:'Drop shot',follow:'Jig worm',tags:['sun','deep']},
-{name:'Southeast point',lat:44.4050,lng:-83.9742,depth:'8–18 ft',first:'Chatterbait',follow:'Ned rig',tags:['wind','east','evening']}
-];
-function compass(deg){return ['N','NE','E','SE','S','SW','W','NW'][Math.round((deg||0)/45)%8];}
-function scoreAreas(){const h=new Date().getHours(),wind=weatherState?.windSpeed||0,dir=weatherState?.windDir||0,cloud=weatherState?.cloud||0;return areas.map(a=>{let s=0;if(h<9&&a.tags.includes('morning'))s+=4;if(h>=9&&h<17&&a.tags.includes('sun'))s+=cloud<55?3:1;if(h>=17&&a.tags.includes('evening'))s+=4;if(cloud>60&&a.tags.includes('cloud'))s+=3;if(wind>7&&a.tags.includes('wind'))s+=4;if(wind<6&&a.tags.includes('calm'))s+=3;if(dir>=225&&dir<=315&&a.tags.includes('east'))s+=3;if(dir>=45&&dir<=135&&a.tags.includes('west'))s+=3;if(wind>12&&a.tags.includes('narrows'))s+=2;if(h>=10&&a.tags.includes('deep'))s+=2;return {...a,score:s};}).sort((a,b)=>b.score-a.score).slice(0,3);}
-function drawRecommendations(top){recommendations.clearLayers();const labels=['START','NEXT','BACKUP'];top.forEach((a,i)=>{const cls=i===1?'secondary':i===2?'backup':'';L.circle([a.lat,a.lng],{radius:i===0?115:90,color:i===0?'#65c7b0':i===1?'#d8e4e8':'#f3c968',weight:3,fillOpacity:.14}).addTo(recommendations).bindPopup(`<strong>${labels[i]}: ${a.name}</strong><br>${a.depth}<br>${a.first}<br>Follow-up: ${a.follow}`);L.marker([a.lat,a.lng],{icon:L.divIcon({className:'recommend-label',html:`<span class="recommend-chip ${cls}">${labels[i]}</span>`,iconAnchor:[28,15]})}).addTo(recommendations);});}
-function renderPlan(){const top=scoreAreas();if(!top.length)return;drawRecommendations(top);const p=top[0],wind=weatherState?`${compass(weatherState.windDir)} ${Math.round(weatherState.windSpeed)} mph`:'current wind';planHeadline.textContent=`Start on ${p.name}`;startArea.textContent=p.name;targetDepth.textContent=p.depth;firstBait.textContent=p.first;followBait.textContent=p.follow;planReason.textContent=`Best current fit for ${wind}, ${weatherState?.cloud??'—'}% cloud cover, and this time of day.`;rankedAreas.innerHTML=top.map((a,i)=>`<div class="area-card"><strong>${['1. Start','2. Next','3. Backup'][i]} — ${a.name}</strong><span>${a.depth} • ${a.first} → ${a.follow}</span><button type="button" data-area="${areas.findIndex(x=>x.name===a.name)}">Show on map</button></div>`).join('');document.querySelectorAll('[data-area]').forEach(b=>b.addEventListener('click',()=>{const a=areas[+b.dataset.area];map.setView([a.lat,a.lng],16);}));}
-async function refreshWeather(){const url='https://api.open-meteo.com/v1/forecast?latitude=44.4086&longitude=-83.9798&current=temperature_2m,cloud_cover,precipitation,wind_speed_10m,wind_direction_10m&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=7';try{const r=await fetch(url);if(!r.ok)throw new Error();const d=await r.json(),c=d.current;weatherState={air:c.temperature_2m,cloud:c.cloud_cover,rain:c.precipitation,windSpeed:c.wind_speed_10m,windDir:c.wind_direction_10m,daily:d.daily};air.textContent=`${Math.round(c.temperature_2m)}°F`;wind.textContent=`${compass(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)} mph`;clouds.textContent=`${Math.round(c.cloud_cover)}%`;rain.textContent=`${c.precipitation.toFixed(2)} in`;estimateWater(d);renderPlan();windControl.getContainer().textContent=`Wind ${compass(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)} mph`;}catch{planHeadline.textContent='Weather unavailable — use seasonal plan';renderPlan();}}
-function estimateWater(d){const highs=d.daily.temperature_2m_max,lows=d.daily.temperature_2m_min,avg=highs.reduce((s,v,i)=>s+(v+lows[i])/2,0)/highs.length,surface=Math.round(avg*.67+24);surfaceTemp.textContent=`${surface}°F`;weedTemp.textContent=`${surface-1}–${surface+1}°F`;edgeTemp.textContent=`${surface-5}–${surface-2}°F`;thermo.textContent=surface>70?'14–20 ft':'weak / forming';confidence.textContent='medium';}
-const windControl=L.control({position:'topright'});windControl.onAdd=()=>{const d=L.DomUtil.create('div','leaflet-control wind-control');d.textContent='Wind —';return d};windControl.addTo(map);
-weatherBtn.addEventListener('click',refreshWeather);refreshPlan.addEventListener('click',refreshWeather);
-opacity.addEventListener('input',e=>{imageOverlay.setOpacity(e.target.value/100);opacityValue.textContent=`${e.target.value}%`;});
-userMapToggle.addEventListener('change',e=>e.target.checked?imageOverlay.addTo(map):map.removeLayer(imageOverlay));
-satelliteToggle.addEventListener('change',e=>{if(e.target.checked){map.removeLayer(street);satellite.addTo(map);}else{map.removeLayer(satellite);street.addTo(map);}if(map.hasLayer(stateContours))stateContours.bringToFront();if(vectorContours&&map.hasLayer(vectorContours))vectorContours.bringToFront();if(map.hasLayer(depthLabels))depthLabels.bringToFront();recommendations.bringToFront();if(map.hasLayer(imageOverlay))imageOverlay.bringToFront();});
-recommendationToggle.addEventListener('change',e=>e.target.checked?recommendations.addTo(map):map.removeLayer(recommendations));
-stateToggle.addEventListener('change',e=>{
-  if(e.target.checked){(vectorContours||stateContours).addTo(map);if(depthLabelToggle.checked)depthLabels.addTo(map);}else{map.removeLayer(stateContours);if(vectorContours)map.removeLayer(vectorContours);map.removeLayer(depthLabels);}
+const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:20, attribution:'© OpenStreetMap'
 });
-depthLabelToggle.addEventListener('change',e=>{if(e.target.checked&&stateToggle.checked){depthLabels.addTo(map);rebuildDepthLabels();}else map.removeLayer(depthLabels);});
-map.on('zoomend',rebuildDepthLabels);
-map.on('click',e=>{
-  const nearest=findNearestContour(e.latlng);
-  mapReadout.textContent=nearest?`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)} • nearest contour ${nearest.depth} ft (${Math.round(nearest.meters)} m away)`:`${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}`;
-});
-function longestLine(feature){
-  const g=feature.geometry;
-  if(!g)return null;
-  const lines=g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[];
-  return lines.reduce((best,line)=>line.length>(best?.length||0)?line:best,null);
-}
-function lineMidpoint(line){
-  if(!line||line.length<2)return null;
-  let total=0,segments=[];
-  for(let i=1;i<line.length;i++){
-    const a=L.latLng(line[i-1][1],line[i-1][0]),b=L.latLng(line[i][1],line[i][0]);
-    const d=a.distanceTo(b);segments.push([a,b,d]);total+=d;
-  }
-  let target=total/2;
-  for(const [a,b,d] of segments){
-    if(target<=d){const t=d?target/d:0;return L.latLng(a.lat+(b.lat-a.lat)*t,a.lng+(b.lng-a.lng)*t);}
-    target-=d;
-  }
-  const end=line[line.length-1];return L.latLng(end[1],end[0]);
-}
-function rebuildDepthLabels(){
-  depthLabels.clearLayers();
-  if(!depthLabelToggle.checked||map.getZoom()<14)return;
-  const used=[];
-  contourFeatures.forEach(f=>{
-    const depth=Number(f.properties?.DEPTH);
-    if(!Number.isFinite(depth))return;
-    const point=lineMidpoint(longestLine(f));
-    if(!point)return;
-    if(used.some(u=>u.distanceTo(point)<75))return;
-    used.push(point);
-    L.marker(point,{interactive:false,icon:L.divIcon({className:'depth-label-wrap',html:`<span class="depth-label-chip">${depth} ft</span>`,iconSize:[46,22],iconAnchor:[23,11]})}).addTo(depthLabels);
+const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom:20, attribution:'Esri World Imagery'
+}).addTo(map);
+
+let contourLayer = null;
+let fallbackRaster = null;
+let contourFeatures = [];
+let labelLayer = L.layerGroup().addTo(map);
+let gpsWatch = null;
+let gpsMarker = null;
+let gpsCircle = null;
+let followGps = false;
+let majorBreaks = true;
+let labelsEnabled = true;
+
+const $ = (id) => document.getElementById(id);
+const contourBanner = $('contourBanner');
+
+function arcgisQueryUrl() {
+  const b = LAKE_BOUNDS;
+  const params = new URLSearchParams({
+    f:'geojson',
+    where:'1=1',
+    geometry:`${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`,
+    geometryType:'esriGeometryEnvelope',
+    inSR:'4326',
+    spatialRel:'esriSpatialRelIntersects',
+    outFields:'OBJECTID,DEPTH',
+    returnGeometry:'true',
+    outSR:'4326',
+    resultRecordCount:'1000',
+    returnExceededLimitFeatures:'true'
   });
+  return `${CONTOUR_URL}?${params}`;
 }
-function pointSegmentDistanceMeters(p,a,b){
-  const lat0=p.lat*Math.PI/180, mx=111320*Math.cos(lat0), my=110540;
-  const px=p.lng*mx,py=p.lat*my,ax=a[0]*mx,ay=a[1]*my,bx=b[0]*mx,by=b[1]*my;
-  const dx=bx-ax,dy=by-ay,len2=dx*dx+dy*dy;
-  const t=len2?Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/len2)):0;
-  return Math.hypot(px-(ax+t*dx),py-(ay+t*dy));
+
+function mercatorX(lng){ return lng * 20037508.342789244 / 180; }
+function mercatorY(lat){
+  const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
+  return y * 20037508.342789244 / 180;
 }
-function findNearestContour(latlng){
+function rasterUrl(){
+  const b=LAKE_BOUNDS;
+  const west=mercatorX(b.getWest()), south=mercatorY(b.getSouth());
+  const east=mercatorX(b.getEast()), north=mercatorY(b.getNorth());
+  const projectedWidth=east-west, projectedHeight=north-south;
+  const height=1900, width=Math.round(height*projectedWidth/projectedHeight);
+  const p=new URLSearchParams({
+    bbox:`${west},${south},${east},${north}`,
+    bboxSR:'3857', imageSR:'3857', size:`${width},${height}`,
+    dpi:'192', format:'png32', transparent:'true', layers:'show:4', f:'image', v:VERSION
+  });
+  return `${EXPORT_URL}?${p}`;
+}
+
+function depthOf(feature){
+  const raw = feature?.properties?.DEPTH ?? feature?.properties?.depth;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function contourStyle(feature){
+  const depth=depthOf(feature);
+  const major=majorBreaks && depth !== null && depth % 10 === 0;
+  return {color:major?'#0c4d94':'#176eb2', weight:major?2.8:1.35, opacity:.95};
+}
+
+async function loadContours(){
+  contourBanner.textContent='Loading GPS-aligned depth contours…';
+  try{
+    const response=await fetch(arcgisQueryUrl(), {cache:'no-store'});
+    if(!response.ok) throw new Error(`Contour service returned ${response.status}`);
+    const data=await response.json();
+    if(!data.features?.length) throw new Error('No contours returned for Rifle Lake');
+    contourFeatures=data.features.filter(f=>depthOf(f)!==null);
+    if(contourLayer) map.removeLayer(contourLayer);
+    contourLayer=L.geoJSON({type:'FeatureCollection',features:contourFeatures},{
+      renderer:L.canvas({padding:.4}),
+      style:contourStyle,
+      onEachFeature:(feature,layer)=>{
+        const d=depthOf(feature);
+        layer.bindPopup(`<strong>${d} ft contour</strong><br>Michigan Inland Lake Contours`);
+      }
+    }).addTo(map);
+    if(fallbackRaster){map.removeLayer(fallbackRaster);fallbackRaster=null;}
+    rebuildLabels();
+    contourBanner.textContent=`Depth contours loaded • ${contourFeatures.length} lines`;
+    $('sourceNote').textContent='Official Michigan vector contours are aligned by latitude/longitude. Depth labels are generated by this app.';
+  }catch(error){
+    console.error(error);
+    fallbackRaster=L.imageOverlay(rasterUrl(), LAKE_BOUNDS, {opacity:.95,interactive:false,crossOrigin:true}).addTo(map);
+    contourBanner.textContent='Contour image fallback loaded • depth numbers unavailable';
+    $('labelsToggle').checked=false;
+    $('labelsToggle').disabled=true;
+    $('sourceNote').textContent='The vector service did not respond, so the app is showing the coordinate-aligned Michigan raster fallback.';
+  }
+}
+
+function flattenCoordinates(geometry){
+  if(!geometry) return [];
+  if(geometry.type==='LineString') return geometry.coordinates;
+  if(geometry.type==='MultiLineString') return geometry.coordinates.flat();
+  return [];
+}
+
+function lineLengthPixels(coords){
+  let total=0;
+  for(let i=1;i<coords.length;i++){
+    const a=map.latLngToLayerPoint([coords[i-1][1],coords[i-1][0]]);
+    const b=map.latLngToLayerPoint([coords[i][1],coords[i][0]]);
+    total+=a.distanceTo(b);
+  }
+  return total;
+}
+
+function labelPoint(coords){
+  if(!coords.length) return null;
+  return coords[Math.floor(coords.length*0.39)] || coords[Math.floor(coords.length/2)];
+}
+
+function rebuildLabels(){
+  labelLayer.clearLayers();
+  if(!labelsEnabled || !map.hasLayer(labelLayer) || !contourFeatures.length || map.getZoom()<14) return;
+  const seen=[];
+  const sorted=[...contourFeatures].sort((a,b)=>(depthOf(a)||0)-(depthOf(b)||0));
+  for(const feature of sorted){
+    const depth=depthOf(feature);
+    const coords=flattenCoordinates(feature.geometry);
+    if(coords.length<4 || lineLengthPixels(coords)<95) continue;
+    const c=labelPoint(coords); if(!c) continue;
+    const ll=L.latLng(c[1],c[0]);
+    const point=map.latLngToContainerPoint(ll);
+    if(seen.some(p=>p.distanceTo(point)<58)) continue;
+    seen.push(point);
+    L.marker(ll,{interactive:false,icon:L.divIcon({className:'depth-label',html:`${depth}'`,iconSize:[32,19],iconAnchor:[16,9]})}).addTo(labelLayer);
+  }
+}
+
+function restyleContours(){
+  if(contourLayer) contourLayer.setStyle(contourStyle);
+}
+
+function pointToSegmentMeters(p,a,b){
+  const refLat=p.lat*Math.PI/180;
+  const kx=111320*Math.cos(refLat), ky=110540;
+  const px=(p.lng-a[0])*kx, py=(p.lat-a[1])*ky;
+  const bx=(b[0]-a[0])*kx, by=(b[1]-a[1])*ky;
+  const len2=bx*bx+by*by;
+  const t=len2 ? Math.max(0,Math.min(1,(px*bx+py*by)/len2)) : 0;
+  return Math.hypot(px-t*bx,py-t*by);
+}
+
+function nearestContour(latlng){
   let best=null;
-  contourFeatures.forEach(f=>{
-    const depth=Number(f.properties?.DEPTH);if(!Number.isFinite(depth))return;
-    const g=f.geometry,lines=g?.type==='LineString'?[g.coordinates]:g?.type==='MultiLineString'?g.coordinates:[];
-    lines.forEach(line=>{for(let i=1;i<line.length;i++){const d=pointSegmentDistanceMeters(latlng,line[i-1],line[i]);if(!best||d<best.meters)best={depth,meters:d};}});
-  });
+  for(const feature of contourFeatures){
+    const depth=depthOf(feature);
+    const coords=flattenCoordinates(feature.geometry);
+    for(let i=1;i<coords.length;i++){
+      const meters=pointToSegmentMeters(latlng,coords[i-1],coords[i]);
+      if(!best || meters<best.meters) best={depth,meters};
+    }
+  }
   return best;
 }
-async function loadVectorContours(){
-  const b=CONTOUR_BOUNDS;
-  const params=new URLSearchParams({where:'1=1',geometry:`${b.west},${b.south},${b.east},${b.north}`,geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:'OBJECTID,DEPTH',returnGeometry:'true',outSR:'4326',f:'geojson'});
-  const r=await fetch(`${CONTOUR_QUERY}?${params.toString()}`);
-  if(!r.ok)throw new Error(`Contour query ${r.status}`);
-  const data=await r.json();
-  if(!Array.isArray(data.features)||!data.features.length)throw new Error('No contour features');
-  contourFeatures=data.features;
-  vectorContours=L.geoJSON(data,{style:f=>{const d=Number(f.properties?.DEPTH)||0;return {color:d>=20?'#0d3f91':'#155fa8',weight:d%10===0?2.1:1.25,opacity:.92};},onEachFeature:(f,l)=>l.bindTooltip(`${f.properties?.DEPTH ?? '—'} ft`,{sticky:true})});
-  if(stateToggle.checked){map.removeLayer(stateContours);vectorContours.addTo(map);}
-  rebuildDepthLabels();
-  contourStatus.textContent=`Official Michigan contours loaded with depth labels (${contourFeatures.length} contour features).`;
+
+map.on('click',(event)=>{
+  const ll=event.latlng;
+  const nearest=nearestContour(ll);
+  $('readout').textContent=nearest
+    ? `${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)} • nearest ${nearest.depth} ft contour`
+    : `${ll.lat.toFixed(6)}, ${ll.lng.toFixed(6)}`;
+  $('nearestDepth').textContent=nearest?`${nearest.depth} ft`:'—';
+  $('nearestDistance').textContent=nearest?`${Math.round(nearest.meters)} ft`:'—';
+});
+map.on('zoomend moveend',rebuildLabels);
+
+$('satelliteToggle').addEventListener('change',(e)=>{
+  if(e.target.checked){map.removeLayer(street);satellite.addTo(map);}else{map.removeLayer(satellite);street.addTo(map);}
+  if(contourLayer) contourLayer.bringToFront();
+  if(fallbackRaster) fallbackRaster.bringToFront();
+  labelLayer.bringToFront();
+});
+$('contoursToggle').addEventListener('change',(e)=>{
+  if(e.target.checked){
+    if(contourLayer) contourLayer.addTo(map);
+    else if(fallbackRaster) fallbackRaster.addTo(map);
+    if(labelsEnabled) labelLayer.addTo(map);
+  }else{
+    if(contourLayer) map.removeLayer(contourLayer);
+    if(fallbackRaster) map.removeLayer(fallbackRaster);
+    map.removeLayer(labelLayer);
+  }
+});
+$('labelsToggle').addEventListener('change',(e)=>{
+  labelsEnabled=e.target.checked;
+  if(labelsEnabled && $('contoursToggle').checked){labelLayer.addTo(map);rebuildLabels();}
+  else map.removeLayer(labelLayer);
+});
+$('majorToggle').addEventListener('change',(e)=>{majorBreaks=e.target.checked;restyleContours();});
+$('lakeButton').addEventListener('click',()=>map.fitBounds(LAKE_BOUNDS,{padding:[10,10]}));
+$('followButton').addEventListener('click',()=>{
+  followGps=!followGps;
+  $('followButton').classList.toggle('active',followGps);
+  $('followButton').textContent=followGps?'Following':'Follow';
+  if(followGps && gpsMarker) map.setView(gpsMarker.getLatLng(),17);
+});
+
+function gpsQuality(accuracy){
+  if(accuracy<=5) return ['Excellent','#67d1b6'];
+  if(accuracy<=10) return ['Good','#67d1b6'];
+  if(accuracy<=20) return ['Fair','#f3c969'];
+  return ['Poor','#ff8e79'];
 }
-function loadContours(){
-  contourStatus.textContent='Loading official Michigan depth contours and depth numbers…';
-  stateContours.once('load',()=>{if(!contourFeatures.length)contourStatus.textContent='Contour lines loaded. Loading depth numbers…';});
-  stateContours.once('error',()=>{contourStatus.textContent='Official contour service did not load. Check internet connection, then reload the app.';});
-  stateContours.setUrl(contourImageUrl());
-  loadVectorContours().catch(()=>{contourStatus.textContent='Contour lines loaded, but depth-number data is temporarily unavailable. The GPS-aligned lines remain usable.';});
-}
-centerBtn.addEventListener('click',()=>map.setView(LAKE_CENTER,15));followBtn.addEventListener('click',()=>{followGps=!followGps;followBtn.textContent=followGps?'Following':'Follow';});
-function qualityFor(acc){if(acc<=8)return ['Excellent','excellent'];if(acc<=15)return ['Good','good'];if(acc<=30)return ['Fair','fair'];return ['Poor','poor'];}
-function updateGpsUi(acc){const feet=Math.round(acc*3.28084),[label,cls]=qualityFor(acc);gpsState.textContent=`GPS ±${feet} ft`;gpsAccuracy.textContent=`±${feet} ft`;gpsBadge.textContent=label;gpsBadge.className=`status gps-${cls}`;gpsQuality.textContent=acc<=15?'Position ready':acc<=30?'Wait for a tighter fix':'Do not rely on dot yet';gpsQuality.className=`gps-quality gps-${cls}`;gpsAccepted.textContent=acceptedReadings;}
-gpsBtn.addEventListener('click',()=>{if(!navigator.geolocation){alert('GPS is not supported.');return;}if(gpsWatch!=null){navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;gpsState.textContent='GPS off';gpsQuality.textContent='GPS stopped';gpsBtn.textContent='Use GPS';gpsBadge.textContent='off';return;}gpsState.textContent='Acquiring GPS…';gpsQuality.textContent='Keep phone in clear view of sky';gpsWatch=navigator.geolocation.watchPosition(p=>{const ll=[p.coords.latitude,p.coords.longitude],acc=p.coords.accuracy;updateGpsUi(acc);if(acc>75)return;const now=Date.now();if(lastAccepted&&acc>lastAccepted.acc*1.8&&now-lastAccepted.time<5000)return;lastAccepted={acc,time:now};acceptedReadings++;gpsAccepted.textContent=acceptedReadings;if(!gpsMarker){gpsCircle=L.circle(ll,{radius:acc,color:'#2477ff',weight:2,fillOpacity:.10}).addTo(map);gpsMarker=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#2477ff',fillOpacity:1}).addTo(map);}else{gpsMarker.setLatLng(ll);gpsCircle.setLatLng(ll).setRadius(acc);}gpsBtn.textContent='Stop GPS';if(followGps||acceptedReadings===1)map.setView(ll,Math.max(map.getZoom(),17));},err=>{gpsState.textContent='GPS unavailable';gpsQuality.textContent=err.message||'Check location permission';},{enableHighAccuracy:true,maximumAge:0,timeout:20000});});
-function fillBounds(){['north','south','west','east'].forEach(k=>document.getElementById(k).value=bounds[k]);}
-function updateOverlay(){imageOverlay.setBounds([[bounds.south,bounds.west],[bounds.north,bounds.east]]);fillBounds();Object.entries(cornerMarkers).forEach(([id,m])=>m.setLatLng(cornerDefs.find(c=>c.id===id).get()));}
-fillBounds();applyBounds.addEventListener('click',()=>{bounds={north:+north.value,south:+south.value,west:+west.value,east:+east.value};localStorage.setItem(CALIBRATION_KEY,JSON.stringify(bounds));updateOverlay();});resetBounds.addEventListener('click',()=>{bounds={...DEFAULT_BOUNDS};localStorage.removeItem(CALIBRATION_KEY);updateOverlay();});fitOverlay.addEventListener('click',()=>map.fitBounds(imageOverlay.getBounds(),{padding:[20,20]}));
-const calibrationLayer=L.layerGroup(),cornerDefs=[{id:'nw',label:'NW',get:()=>[bounds.north,bounds.west]},{id:'ne',label:'NE',get:()=>[bounds.north,bounds.east]},{id:'sw',label:'SW',get:()=>[bounds.south,bounds.west]},{id:'se',label:'SE',get:()=>[bounds.south,bounds.east]}],cornerMarkers={};
-cornerDefs.forEach(c=>{const icon=L.divIcon({className:'',html:'<div class="calibration-handle"></div>',iconSize:[18,18],iconAnchor:[9,9]});const m=L.marker(c.get(),{icon,draggable:true}).addTo(calibrationLayer).bindTooltip(c.label,{permanent:true,direction:'top'});m.on('drag',e=>{const ll=e.target.getLatLng();if(c.id.includes('n'))bounds.north=ll.lat;else bounds.south=ll.lat;if(c.id.includes('w'))bounds.west=ll.lng;else bounds.east=ll.lng;updateOverlay();});cornerMarkers[c.id]=m;});
-function setDrag(){const locked=calibrationLock.checked;Object.values(cornerMarkers).forEach(m=>locked?m.dragging.disable():m.dragging.enable());}calibrationToggle.addEventListener('change',e=>e.target.checked?calibrationLayer.addTo(map):map.removeLayer(calibrationLayer));calibrationLock.addEventListener('change',setDrag);setDrag();
-document.querySelectorAll('[data-nudge]').forEach(btn=>btn.addEventListener('click',()=>{const s=.00008,o=btn.dataset.nudge;if(o==='north'){bounds.north+=s;bounds.south+=s}if(o==='south'){bounds.north-=s;bounds.south-=s}if(o==='east'){bounds.east+=s;bounds.west+=s}if(o==='west'){bounds.east-=s;bounds.west-=s}if(o==='growY'){bounds.north+=s;bounds.south-=s}if(o==='shrinkY'){bounds.north-=s;bounds.south+=s}if(o==='growX'){bounds.east+=s;bounds.west-=s}if(o==='shrinkX'){bounds.east-=s;bounds.west+=s}updateOverlay();}));
-updateOverlay();loadContours();refreshWeather();
-if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));}
+
+$('gpsButton').addEventListener('click',()=>{
+  if(gpsWatch!==null){
+    navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;
+    $('gpsButton').textContent='Use GPS';$('gpsBanner').textContent='GPS off';
+    return;
+  }
+  if(!navigator.geolocation){$('gpsBanner').textContent='GPS unsupported';return;}
+  $('gpsBanner').textContent='Acquiring precise location…';
+  gpsWatch=navigator.geolocation.watchPosition((position)=>{
+    const {latitude,longitude,accuracy}=position.coords;
+    const ll=L.latLng(latitude,longitude);
+    const [quality,color]=gpsQuality(accuracy);
+    $('gpsBanner').textContent=`${quality} GPS • ±${Math.round(accuracy)} m`;
+    $('gpsBadge').textContent=quality;$('gpsBadge').style.color=color;
+    $('accuracyValue').textContent=`±${Math.round(accuracy)} m`;
+    $('coordinateValue').textContent=`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+    if(!gpsCircle){
+      gpsCircle=L.circle(ll,{radius:accuracy,color:'#43a8ff',weight:2,fillColor:'#43a8ff',fillOpacity:.12}).addTo(map);
+      gpsMarker=L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:'#1679ff',fillOpacity:1}).addTo(map);
+    }else{
+      gpsCircle.setLatLng(ll).setRadius(accuracy);gpsMarker.setLatLng(ll);
+    }
+    $('gpsButton').textContent='Stop GPS';
+    if(followGps) map.setView(ll,Math.max(17,map.getZoom()),{animate:true});
+  },(error)=>{
+    $('gpsBanner').textContent=error.code===1?'Location permission denied':'Unable to get GPS';
+  },{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+});
+
+loadContours();
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v='+VERSION).catch(console.error));}
